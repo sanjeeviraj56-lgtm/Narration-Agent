@@ -1,12 +1,1 @@
-const A = require('../lib/auth');
-module.exports = async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
-  const U = process.env.APP_USER, P = process.env.APP_PASS;
-  if (!U || !P) return res.status(500).json({ error: 'Server is not set up: APP_USER and APP_PASS are missing in Vercel.' });
-  const { username = '', password = '' } = req.body || {};
-  const okU = A.safeEq(String(username).trim().toLowerCase(), U.toLowerCase()), okP = A.safeEq(password, P);
-  if (!(okU && okP)) { await new Promise(r => setTimeout(r, 800)); return res.status(401).json({ error: 'Wrong username or password' }); }
-  A.setCookie(res, 'na_s', A.sign({ u: U, exp: Date.now() + 30 * 864e5 }), 30 * 86400);
-  res.status(200).json({ ok: true });
-};
+const A=require('../lib/auth');const users=()=>{const m={};const add=(u,p)=>{if(u&&p)m[String(u).trim().toLowerCase()]=String(p).trim()};add(process.env.APP_USER,process.env.APP_PASS);String(process.env.APP_USERS||'').split(/[;\n]/).forEach(s=>{const i=s.indexOf(':');if(i>0)add(s.slice(0,i),s.slice(i+1))});return m};module.exports=async(req,res)=>{res.setHeader('Cache-Control','no-store');if(req.method!=='POST')return res.status(405).json({error:'POST only'});const U=users();if(!Object.keys(U).length)return res.status(500).json({error:'Server is not set up: APP_USER and APP_PASS (or APP_USERS) are missing in Vercel.'});const b=req.body||{};const name=String(b.username||'').trim();const p=U[name.toLowerCase()];const ok=A.safeEq(String(b.password||'').trim(),p===undefined?'\u0000no-user':p)&&p!==undefined;if(!ok){await new Promise(r=>setTimeout(r,800));return res.status(401).json({error:'Wrong username or password'})}A.setCookie(res,'na_s',A.sign({u:name,exp:Date.now()+30*864e5}),30*86400);res.status(200).json({ok:true})};
