@@ -682,7 +682,8 @@ function buildPrompt(extra){
     task=`MODE: CHECK.\nExisting narration: ${src}\nVoucher bank ledger: ${$('bank').value||'not given'}\nAgainst ledger: ${led||'not given'}\nVoucher amount: ${$('amt2').value||'not given'}`+(pre.length?`\nThe rule checker already found: ${pre.join('; ')}. Fix these in the narration where the facts allow (for a bank mismatch, do not change the bank; keep it in fixes).`:'');
   }
   if(extra) task+=`\nExtra info from user (use it, do not invent beyond it): ${extra}\nPrevious narration (user may have edited it, keep its wording): ${$('out').value||''}`;
-  let entry='',sch=schema;
+  if(mode==='write'&&!looksNarr(src))task+='
+WRITE RULE: ALWAYS return a non-empty narration in the office format (Being ... Totally Rs. x/-), even when the best narrations above have no similar old entry. Use only the facts in the keywords, leave out what is unknown and list it in ask. Never leave narration empty.';let entry='',sch=schema;
   if(mode==='write'||mode==='check'){
     const hist=window.BRAIN&&BRAIN.SN?BRAIN.similar(src,{k:8,ledger:led}):[];
     const cands=window.BRAIN&&BRAIN.SN?BRAIN.candidates(src,hist):[];
@@ -733,7 +734,9 @@ async function run(extra){
     let imgs=[],sheets='';
     if(mode==='write'&&$('bf').files.length){for(const f of $('bf').files){if(window.BRAIN&&BRAIN.isSheet(f))sheets+='\n'+await BRAIN.sheetText(f);else imgs.push(...await billImages(f))}}
     const r=await sample.json(buildPrompt(extra)+((imgs.length||sheets)?(imgs.length?'\nBill/invoice images are attached. Use only facts printed on them (vendor, bill no., date, items, quantities, rates, total) together with the keywords. If the bill total differs from the voucher amount, say so in ask.':'')+(sheets?'\nATTACHED SPREADSHEET DATA (text of the Excel/CSV files):'+sheets:'')+BILL_RULES:''),imgs.length?{modelTier:'default',images:imgs}:{modelTier:'default'});
-    if(mode==='write'&&looksNarr(src)&&r.facts){
+    if(mode==='write'&&!String(r.narration||'').trim()){try{const r2=await sample.json(buildPrompt(extra)+'
+
+IMPORTANT: the previous answer left narration empty. A narration is ALWAYS required. Write it now in the office format (Being ... Totally Rs. x/-) from the facts in the keywords, leave out what is unknown and list it in ask. No similar old entry is not a reason to leave it empty.');if(r2&&String(r2.narration||'').trim()){r.narration=r2.narration;if(r2.ask&&r2.ask.length)r.ask=r2.ask}}catch(e){}}if(mode==='write'&&looksNarr(src)&&r.facts){
       const c=composeOffice(r.facts);
       if(c){
         const sf=figs(src),cf=figs(c);
