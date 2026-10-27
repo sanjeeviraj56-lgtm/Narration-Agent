@@ -3,7 +3,8 @@ const A = require('../lib/auth');
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
-  if (!A.need(req, res)) return;
+  const sess = A.need(req, res); if (!sess) return;
+  try { const me = await require('../lib/users').find(sess.u); if (!me || me.active === false) return res.status(401).json({ error: 'Please sign in' }); } catch (e) {}
   const { input, images = [], engine, json } = req.body || {};
   if (!input) return res.status(400).json({ error: 'No input' });
   const have = A.engines();
