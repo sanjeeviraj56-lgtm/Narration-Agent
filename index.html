@@ -2474,6 +2474,18 @@ body.na-lock .wrap{visibility:hidden}
 #na-login h2{margin:0;text-align:center;color:var(--brand);font-size:22px}
 #na-login p{margin:0;text-align:center;color:var(--muted);font-size:13px}
 #na-lerr{color:var(--bad);font-size:13px;min-height:18px;text-align:center}
+#na-adm{position:fixed;inset:0;z-index:60;display:none;align-items:flex-start;justify-content:center;padding:16px;background:#0006;overflow:auto}
+#na-adm.on{display:flex}
+#na-adm .box{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--gold);border-radius:12px;padding:20px;width:min(860px,100%);box-shadow:0 8px 30px #0003}
+#na-adm h2{margin:0 0 4px;color:var(--brand);font-size:20px}
+#na-adm table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+#na-adm th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:6px 8px;background:var(--bg)}
+#na-adm td{padding:8px;border-top:1px solid var(--line);vertical-align:middle}
+#na-adm .pill{display:inline-block;padding:2px 10px;border:1px solid var(--line);border-radius:99px;font-size:12px}
+#na-adm .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+#na-adm .row>div{flex:1 1 150px}
+#na-adm .msg{min-height:18px;font-size:13px;margin-top:8px}
+#na-adm .ghost{font-size:13px;padding:4px 10px}
 </style>
 <div id="na-login"><form id="na-form" autocomplete="on">
   <img id="na-limg" alt="Nandatha"><h2>Narration Agent</h2><p>Nandatha · sign in to continue</p>
@@ -2482,6 +2494,7 @@ body.na-lock .wrap{visibility:hidden}
   <div id="na-lerr" role="alert"></div>
   <button class="primary" id="na-lgo" type="submit">Sign in</button>
 </form></div>
+<div id="na-adm"><div class="box" id="na-admbox"></div></div>
 <script>
 (function(){
   const NA=window.NA,$=id=>document.getElementById(id);
@@ -2492,7 +2505,7 @@ body.na-lock .wrap{visibility:hidden}
   const msg={claude:'Claude (best quality)',gemini:'Gemini (free)'};
   function paint(){
     $('na-who').textContent=NA.user?'Signed in: '+NA.user+(NA.admin?' (Administrator)':''):'';
-    let ub=$('na-users');if(NA.admin&&!ub){ub=document.createElement('button');ub.className='ghost';ub.id='na-users';ub.textContent='Users';ub.onclick=()=>alert('Users who can sign in:\n\n'+(NA.users||[]).map(x=>'- '+x.name+(x.admin?' (Administrator)':'')).join('\n')+'\n\nTo add or change a user, edit APP_USERS in Vercel.');$('na-out').before(ub)}
+    let ub=$('na-users');if(NA.admin&&!ub){ub=document.createElement('button');ub.className='ghost';ub.id='na-users';ub.textContent='Admin centre';ub.onclick=()=>NA.openAdmin();$('na-out').before(ub)}
     const sel=$('na-eng');let cur='';try{cur=localStorage.getItem('na_engine')||''}catch(e){}
     if(!NA.engines.includes(cur))cur=NA.engines[0]||'';
     sel.innerHTML='';NA.engines.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=msg[e]||e;sel.appendChild(o)});sel.value=cur;
@@ -2503,11 +2516,58 @@ body.na-lock .wrap{visibility:hidden}
   $('na-eng').onchange=e=>{try{localStorage.setItem('na_engine',e.target.value)}catch(x){}};
   $('na-ms').onclick=()=>{location.href='/api/ms/login'};
   $('na-out').onclick=async()=>{try{await NA.api('/api/logout')}catch(e){}location.reload()};
+
+  NA.openAdmin=async function(){
+    const W=$('na-adm'),B=$('na-admbox');W.classList.add('on');
+    const el=(t,p,k)=>{const e=document.createElement(t);if(p)Object.assign(e,p);(k||[]).forEach(c=>e.append(c));return e};
+    let users=[],mode=null,msgT='',msgBad=false;
+    const call=async(body)=>{const r=await fetch('/api/users',{method:body?'POST':'GET',credentials:'same-origin',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Error '+r.status);return j};
+    const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';const r=crypto.getRandomValues(new Uint8Array(10));return 'Na-'+[...r].map(x=>a[x%a.length]).join('')+'#'+(10+r[0]%90)};
+    function draw(){
+      B.innerHTML='';
+      B.append(el('h2',{textContent:'Admin centre'}),el('p',{className:'hint',textContent:'Who may sign in to the Narration Agent. Administrators can add users, change roles and set new passwords.'}));
+      if(!NA.storage)B.append(el('p',{className:'hint',style:'color:var(--bad)',textContent:'User storage is not connected yet, so you can only view users. Connect an Upstash Redis database in Vercel to add or change users.'}));
+      const top=el('div',{className:'row'},[el('button',{className:'primary',textContent:'+ Add a user',onclick:()=>{mode={t:'add'};draw()}}),el('button',{className:'ghost',textContent:'Close',onclick:()=>W.classList.remove('on')})]);
+      top.style.alignItems='center';B.append(top);
+      if(mode){
+        const m=mode,isAdd=m.t==='add',isPw=m.t==='pw',u=m.u||{};
+        const f={};const inp=(k,l,v,ph,type)=>{const i=el('input',{value:v||'',placeholder:ph||'',type:type||'text',autocapitalize:'none',spellcheck:false});f[k]=i;return el('div',{},[el('label',{textContent:l}),i])};
+        const row=el('div',{className:'row'});
+        if(isAdd||m.t==='edit'){
+          if(isAdd)row.append(inp('username','Username','', 'e.g. aarthy'));
+          row.append(inp('name','Name',u.name||''),inp('email','Company email',u.email||''));
+          const sel=el('select',{},[el('option',{value:'user',textContent:'User'}),el('option',{value:'admin',textContent:'Administrator'})]);sel.value=u.role||'user';f.role=sel;row.append(el('div',{},[el('label',{textContent:'Role'}),sel]));
+          if(!isAdd){const st=el('select',{},[el('option',{value:'1',textContent:'Active'}),el('option',{value:'0',textContent:'Disabled'})]);st.value=u.active===false?'0':'1';f.active=st;row.append(el('div',{},[el('label',{textContent:'Status'}),st]))}
+        }
+        if(isAdd||isPw){const p=inp('password',isPw?'New password for '+u.name:'Temporary password',isAdd?gen():'','min 8 characters');row.append(p);row.append(el('div',{},[el('label',{innerHTML:'&nbsp;'}),el('button',{type:'button',className:'ghost',textContent:'Generate',onclick:()=>{f.password.value=gen()}})]))}
+        const msg=el('div',{className:'msg',id:'na-admmsg'});
+        const go=el('button',{className:'primary',textContent:isAdd?'Create user':isPw?'Set password':'Save',onclick:async()=>{
+          msg.style.color='var(--muted)';msg.textContent='Saving...';
+          try{const b={action:isAdd?'add':isPw?'password':'update',username:isAdd?f.username.value:u.username};
+            if(f.name)b.name=f.name.value;if(f.email)b.email=f.email.value;if(f.role)b.role=f.role.value;if(f.active)b.active=f.active.value==='1';if(f.password)b.password=f.password.value;
+            const r=await call(b);users=r.users;
+            if(b.password){msgT=(isAdd?'User created. ':'Password set. ')+'Share this temporary password privately: '+b.username+' / '+b.password;}else msgT='Saved.';msgBad=false;mode=null;draw();
+          }catch(e){msg.style.color='var(--bad)';msg.textContent=e.message}}});
+        const act=el('div',{className:'row'},[go,el('button',{className:'ghost',textContent:'Cancel',onclick:()=>{mode=null;draw()}})]);act.style.alignItems='center';
+        B.append(row,act,msg);
+      }
+      if(msgT)B.append(el('div',{className:'msg',style:'color:'+(msgBad?'var(--bad)':'var(--ok,#1a7f37)'),textContent:msgT}));
+      const tb=el('table'),hd=el('tr');['Name','Username','Company email','Role','Status',''].forEach(h=>hd.append(el('th',{textContent:h})));tb.append(hd);
+      users.forEach(u=>{const tr=el('tr');
+        tr.append(el('td',{textContent:u.name}),el('td',{textContent:u.username+(u.username.toLowerCase()===String(NA.username||'').toLowerCase()?'  (you)':'')}),el('td',{textContent:u.email||'—'}),el('td',{},[el('span',{className:'pill',textContent:u.role==='admin'?'Administrator':'User'})]),el('td',{},[el('span',{className:'pill',textContent:u.active?'Active':'Disabled'})]));
+        const a=el('td',{style:'white-space:nowrap;text-align:right'});
+        if(NA.storage){a.append(el('button',{className:'ghost',textContent:'Edit',onclick:()=>{mode={t:'edit',u};draw()}}),' ',el('button',{className:'ghost',textContent:'New password',onclick:()=>{mode={t:'pw',u};draw()}}))}
+        tr.append(a);tb.append(tr)});
+      const wrap=el('div',{style:'overflow:auto'},[tb]);B.append(wrap);
+    }
+    B.innerHTML='<p class="hint">Loading users...</p>';
+    try{const r=await call();users=r.users;NA.storage=!!r.storage;draw()}catch(e){B.innerHTML='';B.append(el('p',{textContent:e.message,style:'color:var(--bad)'}),el('button',{className:'ghost',textContent:'Close',onclick:()=>W.classList.remove('on')}))}
+  };
   NA.showLogin=()=>{$('na-login').classList.add('on');setTimeout(()=>$('na-u').focus(),50)};
   async function me(){
     const r=await fetch('/api/me',{credentials:'same-origin'});
     if(r.status===401){NA.showLogin();return false}
-    const j=await r.json();NA.user=j.user;NA.admin=!!j.admin;NA.users=j.users||[];NA.engines=j.engines||[];NA.ms=j.ms||NA.ms;NA.ready=true;
+    const j=await r.json();NA.user=j.user;NA.username=j.username;NA.admin=!!j.admin;NA.storage=!!j.storage;NA.engines=j.engines||[];NA.ms=j.ms||NA.ms;NA.ready=true;
     $('na-login').classList.remove('on');document.body.classList.remove('na-lock');paint();return true;
   }
   $('na-form').onsubmit=async ev=>{
