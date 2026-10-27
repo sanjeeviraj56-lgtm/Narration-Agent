@@ -780,8 +780,8 @@ function setFiles(arr){try{const dt=new DataTransfer();arr.forEach(f=>dt.items.a
 function finishEntry(){
   const fl=mode==='write'?WF:CF;
   lastIn={mode,kw:$('kw').value,old:$('old').value,files:[...$('bf').files],f:fl.map(id=>[id,$(id).value,$(id).dataset.auto||''])};
-  if(mode==='write'){$('kw').value='';try{$('bf').value=''}catch(e){}$('bfn').textContent=''}
-  else $('old').value='';
+  if(false){$('kw').value='';try{$('bf').value=''}catch(e){}$('bfn').textContent=''}
+  else if(false)$('old').value='';
   newPending=true;
 }
 function restoreIn(){
