@@ -2491,7 +2491,8 @@ body.na-lock .wrap{visibility:hidden}
   document.querySelector('.wrap').prepend(top);
   const msg={claude:'Claude (best quality)',gemini:'Gemini (free)'};
   function paint(){
-    $('na-who').textContent=NA.user?'Signed in: '+NA.user:'';
+    $('na-who').textContent=NA.user?'Signed in: '+NA.user+(NA.admin?' (Administrator)':''):'';
+    let ub=$('na-users');if(NA.admin&&!ub){ub=document.createElement('button');ub.className='ghost';ub.id='na-users';ub.textContent='Users';ub.onclick=()=>alert('Users who can sign in:\n\n'+(NA.users||[]).map(x=>'- '+x.name+(x.admin?' (Administrator)':'')).join('\n')+'\n\nTo add or change a user, edit APP_USERS in Vercel.');$('na-out').before(ub)}
     const sel=$('na-eng');let cur='';try{cur=localStorage.getItem('na_engine')||''}catch(e){}
     if(!NA.engines.includes(cur))cur=NA.engines[0]||'';
     sel.innerHTML='';NA.engines.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=msg[e]||e;sel.appendChild(o)});sel.value=cur;
@@ -2506,7 +2507,7 @@ body.na-lock .wrap{visibility:hidden}
   async function me(){
     const r=await fetch('/api/me',{credentials:'same-origin'});
     if(r.status===401){NA.showLogin();return false}
-    const j=await r.json();NA.user=j.user;NA.engines=j.engines||[];NA.ms=j.ms||NA.ms;NA.ready=true;
+    const j=await r.json();NA.user=j.user;NA.admin=!!j.admin;NA.users=j.users||[];NA.engines=j.engines||[];NA.ms=j.ms||NA.ms;NA.ready=true;
     $('na-login').classList.remove('on');document.body.classList.remove('na-lock');paint();return true;
   }
   $('na-form').onsubmit=async ev=>{
