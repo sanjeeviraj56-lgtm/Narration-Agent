@@ -143,6 +143,7 @@ input:focus,select:focus,textarea:focus,button:focus-visible{outline-color:var(-
   <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between">
     <div style="flex:1 1 360px;display:flex;gap:8px;align-items:flex-start"><span class="dot" id="bdot" style="margin-top:6px"></span><div><strong>Tally data</strong><p class="hint" id="binfo" style="margin-top:2px">Reading saved data...</p><p class="err" id="berr" hidden></p></div></div>
     <div><label for="bsnap">TallyDesk snapshot (.tdsnap), once in a while</label><input id="bsnap" type="file" accept=".tdsnap"></div>
+    <div id="tdOnline" hidden style="flex:1 1 100%"><label>Or load the latest data straight from Tally Desk online (use your Tally Desk login; it is checked in your browser only)</label><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px"><input id="tdu" placeholder="Tally Desk username" autocomplete="username" autocapitalize="none" spellcheck="false" style="flex:1 1 160px"><input id="tdp" type="password" placeholder="Password" autocomplete="current-password" style="flex:1 1 160px"><button type="button" id="tdgo">Load from Tally Desk</button></div><p class="hint" id="tdmsg" style="margin-top:4px"></p></div>
   </div>
 </section>
 
@@ -1822,14 +1823,16 @@ async function fromBuf(buf){
   if(String.fromCharCode(...u.slice(0,7))!=='TDSNAP1')throw new Error('This is not a TallyDesk snapshot (.tdsnap) file.');
   if(typeof DecompressionStream==='undefined')throw new Error('This browser cannot open the snapshot. Use a current Chrome or Edge.');
   const text=await new Response(new Blob([u.slice(8)]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
-  const j=JSON.parse(text);B.j=j;B.SN=build(j);B.lib=B.SN.lib;
+  await fromObj(JSON.parse(text));
+}
+async function fromObj(j){B.j=j;B.SN=build(j);B.lib=B.SN.lib;
   try{window.dispatchEvent(new CustomEvent('brain',{detail:j}))}catch(e){}
   try{drawLedgers();syncStmt()}catch(e){}
 }
 function info(){
   const SN=B.SN,el=$('binfo');$('bdot').className='dot'+(SN?' on':'');
   if(!SN){el.textContent='Not loaded. Upload the .tdsnap from TallyDesk once: the agent then reads Sir individual, Nandatha and Selvam Sir, keeps the best narrations and uses them in every tab.';return}
-  el.textContent=SN.companies.map(c=>c.label+' '+c.nv).join(' · ')+' vouchers read (data up to '+SN.to+'). '+SN.lib.length+' best narrations kept from '+SN.docs.length+' written ones.';
+  el.textContent=SN.companies.map(c=>c.label+' '+c.nv).join(' · ')+' vouchers read (data up to '+SN.to+(B.j&&B.j.saved?', copied from Tally '+new Date(B.j.saved).toLocaleString():'')+'). '+SN.lib.length+' best narrations kept from '+SN.docs.length+' written ones.';
   $('lstat') && libDraw();
 }
 $('bsnap').onchange=async e=>{
@@ -1837,7 +1840,45 @@ $('bsnap').onchange=async e=>{
   try{const buf=await f.arrayBuffer();await fromBuf(buf);await idbSet('tdsnap',buf);info()}
   catch(err){B.SN=null;info();$('berr').textContent=(err&&err.message)||'Could not open the file.';$('berr').hidden=false}
 };
-(async()=>{const b=await idbGet('tdsnap');if(b){try{await fromBuf(b)}catch(e){}}info()})();
+const TD_URL='https://tallydesk-nandatha.vercel.app/data.tdsnap';
+const tdB64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
+async function tdId(u){const h=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode('tallydesk-user:'+u.trim().toLowerCase())));return [...h].map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function tdKek(u,pw,salt){const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(u.trim().toLowerCase()+'\u0000'+pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['decrypt'])}
+async function tdUnpack(buf,u,pw){
+  const b=new Uint8Array(buf);
+  if(new TextDecoder().decode(b.slice(0,7))!=='TDSNAPU')throw new Error('The online file is not in the expected format.');
+  const n=new DataView(b.buffer,b.byteOffset+8,4).getUint32(0);const H=JSON.parse(new TextDecoder().decode(b.slice(12,12+n)));
+  const bad=new Error('Wrong Tally Desk username or password.');bad.code='badpw';
+  const myId=await tdId(u);const ent=H.users.find(x=>x.id===myId);if(!ent)throw bad;
+  let K;try{K=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:tdB64(ent.i)},await tdKek(u,pw,tdB64(ent.s)),tdB64(ent.k)))}catch(e){throw bad}
+  const dk=await crypto.subtle.importKey('raw',K,'AES-GCM',false,['decrypt']);
+  const z=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:tdB64(H.iv)},dk,b.slice(12+n)));
+  return JSON.parse(await new Response(new Blob([z]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+}
+async function tdLoad(u,pw,silent){
+  const msg=$('tdmsg');if(!silent)msg.textContent='Opening Tally Desk data...';
+  try{
+    const r=await fetch(TD_URL+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('Tally Desk online data not found (publish it from Tally Desk first).');
+    const obj=await tdUnpack(await r.arrayBuffer(),u,pw);
+    await fromObj(obj.v===2?obj:{v:2,companies:[obj]});await idbSet('tdobj',B.j);
+    try{sessionStorage.setItem('td:cred',JSON.stringify({u,p:pw}));localStorage.setItem('td:user',u)}catch(e){}
+    $('tdp').value='';msg.textContent='Loaded from Tally Desk.';info();return true;
+  }catch(err){
+    if(err&&err.code==='badpw')try{sessionStorage.removeItem('td:cred')}catch(e){}
+    msg.textContent=(err&&err.message)||'Could not open Tally Desk data.';return false;
+  }
+}
+function tdInit(){
+  if(!window.NA_WEB)return;$('tdOnline').hidden=false;
+  let c=null;try{c=JSON.parse(sessionStorage.getItem('td:cred')||'null')}catch(e){}
+  try{$('tdu').value=(c&&c.u)||localStorage.getItem('td:user')||''}catch(e){}
+  $('tdgo').onclick=()=>{const u=$('tdu').value.trim(),p=$('tdp').value;if(!u||!p){$('tdmsg').textContent='Enter your Tally Desk username and password.';return}tdLoad(u,p,false)};
+  $('tdp').onkeydown=e=>{if(e.key==='Enter')$('tdgo').click()};
+  if(c&&c.u&&c.p)tdLoad(c.u,c.p,true);
+}
+(async()=>{const b=await idbGet('tdsnap');if(b){try{await fromBuf(b)}catch(e){}}
+  const o=await idbGet('tdobj');if(o&&(!B.j||String(o.saved||'')>String(B.j.saved||''))){try{await fromObj(o)}catch(e){}}
+  info();tdInit()})();
 
 /* ---- Library tab ---- */
 function libDraw(){
