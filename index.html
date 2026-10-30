@@ -683,7 +683,7 @@ function buildPrompt(extra){
     task=`MODE: CHECK.\nExisting narration: ${src}\nVoucher bank ledger: ${$('bank').value||'not given'}\nAgainst ledger: ${led||'not given'}\nVoucher amount: ${$('amt2').value||'not given'}`+(pre.length?`\nThe rule checker already found: ${pre.join('; ')}. Fix these in the narration where the facts allow (for a bank mismatch, do not change the bank; keep it in fixes).`:'');
   }
   if(extra) task+=`\nExtra info from user (use it, do not invent beyond it): ${extra}\nPrevious narration (user may have edited it, keep its wording): ${$('out').value||''}`;
-  if(mode==='write'&&!looksNarr(src))task+='\nWRITE RULE: ALWAYS return a non-empty narration in the office format (Being ... Totally Rs. x/-), even when the best narrations above have no similar old entry. Use only the facts in the keywords, leave out what is unknown and list it in ask. Never leave narration empty.';let entry='',sch=schema;
+  if(mode==='write'&&!looksNarr(src))task+='\nWRITE RULE: ALWAYS return a non-empty narration in the office format (Being ... Totally Rs. x/-), even when the best narrations above have no similar old entry. Use only the facts in the keywords, leave out what is unknown and list it in ask. Never leave narration empty.';if(mode==='write'){const T=pasteTable(src);if(T)task+='\n\n'+T.text+'\nTABLE RULE: The keywords contain a table pasted from Excel, parsed above with the sums already checked. Write ONE single-paragraph narration in the office format. Open with Being ... (use the text the user typed after the table, e.g. which a/c the cash was withdrawn from, and what it is for). Then give the FIRST amount column section by section: say the section name, then every name with the amount, grouping equal amounts as "Kannan, Arun, Raja each Rs. 25,000/- (Rs. 75,000/-)", and the column total. Then give each LATER amount column the same way (for example the special gesture), listing ONLY the names with a non-zero amount. Finish with "Total paid Rs. X/-" using the Total row. Include EVERY name, never drop or invent a name or figure, copy figures only from the table, write amounts like Rs. 25,000/-. If CHECK RESULT shows a mismatch, put it in ask. Set the voucher amount to the grand total.'}let entry='',sch=schema;
   if(mode==='write'||mode==='check'){
     const hist=window.BRAIN&&BRAIN.SN?BRAIN.similar(src,{k:8,ledger:led}):[];
     const cands=window.BRAIN&&BRAIN.SN?BRAIN.candidates(src,hist):[];
@@ -713,6 +713,48 @@ function composeOffice(f){
   }
   return t.replace(/\s+/g,' ').replace(/\s+,/g,',').replace(/\.\./g,'.');
 }
+function pasteTable(src){
+  if(!/\t/.test(src))return null;
+  const rows=[];let row=[],cell='',q=false,s=String(src).replace(/\r/g,'');
+  for(let i=0;i<s.length;i++){const ch=s[i];
+    if(q){if(ch==='"'){if(s[i+1]==='"'){cell+='"';i++}else q=false}else cell+=ch}
+    else if(ch==='"'&&cell==='')q=true;
+    else if(ch==='\t'){row.push(cell);cell=''}
+    else if(ch==='\n'){row.push(cell);rows.push(row);row=[];cell=''}
+    else cell+=ch}
+  row.push(cell);rows.push(row);
+  const cl=x=>String(x||'').replace(/\s+/g,' ').trim();
+  const isNum=x=>/^\(?-?\s*[\d,]+(?:\.\d+)?\)?$/.test(cl(x))||/^[-–—]$/.test(cl(x));
+  const num=x=>{x=cl(x);if(/^[-–—]$/.test(x)||x==='')return 0;const n=parseFloat(x.replace(/[(),\s]/g,''));return isNaN(n)?0:(/^\(/.test(x)?-n:n)};
+  const tab=rows.map(r=>r.map(cl)),multi=tab.filter(r=>r.filter(Boolean).length>=2);
+  if(multi.length<3)return null;
+  const hi=tab.findIndex(r=>r.filter(Boolean).length>=3&&!r.some(isNum));
+  if(hi<0)return null;
+  const H=tab[hi];const notes=[];const out=[];const sums={};const items=[];let total=null,sec='';
+  const nonEmpty=r=>r.filter(Boolean).length;
+  for(let i=0;i<tab.length;i++){if(i===hi)continue;const r=tab[i];
+    if(!nonEmpty(r)){continue}
+    if(nonEmpty(r)===1&&!isNum(r.find(Boolean))){const t=r.find(Boolean);if(i<hi||nonEmpty(tab[i])<2&&!/\t/.test(rows[i].join('\t').trim()||'')&&false)notes.push(t);
+      else if(rows[i].length<=1&&i>hi&&!rows.slice(i+1).some((x,j)=>x.length>1)){notes.push(t)}else{sec=t;out.push('['+t+']')}continue}
+    const lab=r.findIndex((x,j)=>x&&!isNum(x));
+    const label=lab>=0?r[lab]:'';
+    const vals=r.map((x,j)=>j>lab&&isNum(x)?num(x):(j>lab&&x===''?0:null));
+    if(/^total$/i.test(label)||(lab<0&&r.some(isNum))){total=r.map((x,j)=>j>=0&&isNum(x)?num(x):null);continue}
+    if(lab<0)continue;
+    const cols=[];H.forEach((h,j)=>{if(j>lab&&h&&(isNum(r[j])||r[j]===''))cols.push([h,num(r[j]),j])});
+    if(!cols.length){notes.push(r.filter(Boolean).join(' '));continue}
+    if(cols.every(c=>c[1]===0)){sec=label;out.push('['+label+']');continue}
+    items.push({sec,label,cols});cols.forEach(([h,v,j])=>{sums[j]=(sums[j]||0)+v});
+    out.push(label+' | '+cols.map(([h,v])=>h+': '+v).join(' | '))}
+  if(!items.length)return null;
+  const checks=[];const lastJ=Math.max(...items[0].cols.map(c=>c[2]));
+  items.forEach(it=>{const parts=it.cols.filter(c=>c[2]<lastJ).reduce((a,c)=>a+c[1],0),tot=it.cols.find(c=>c[2]===lastJ);if(tot&&it.cols.length>1&&Math.abs(parts-tot[1])>0.005)checks.push(it.label+': parts '+parts+' but total '+tot[1])});
+  const colSum=H.map((h,j)=>sums[j]!=null?h+' = '+Math.round(sums[j]*100)/100:null).filter(Boolean);
+  if(total)H.forEach((h,j)=>{if(sums[j]!=null&&total[j]!=null&&Math.abs(sums[j]-total[j])>0.005)checks.push('Column "'+h+'": rows add to '+Math.round(sums[j]*100)/100+' but the Total row says '+total[j])});
+  const lines=src.split('\n').filter(l=>!/\t/.test(l)&&l.trim());
+  return {text:'PASTED EXCEL TABLE (parsed, 0 = blank or dash):\n'+out.join('\n')+'\nCOLUMN SUMS I COMPUTED: '+colSum.join('; ')+(total?'\nTOTAL ROW IN THE TABLE: '+H.map((h,j)=>total[j]!=null&&j>=1?h+' = '+total[j]:null).filter(Boolean).join('; '):'')+'\nCHECK RESULT: '+(checks.length?checks.join('; '):'all row totals and column totals tie'),
+    checks,notes:lines,items:items.length};
+}
 function nums(t){return (String(t).match(/\d[\d,]*(?:\.\d+)?/g)||[]).map(x=>x.replace(/,/g,'')).filter(x=>x!=='').sort().join('|')}
 function figs(t){return [...new Set((String(t).match(/Rs\.?\s?([\d,]+(?:\.\d+)?)/gi)||[]).map(x=>x.replace(/[^\d.]/g,'')))]}
 async function run(extra){
@@ -721,7 +763,7 @@ async function run(extra){
   const src=mode==='write'?($('kw').value.trim()||($('bf').files.length?'bill':'')):$('old').value.trim();
   if(!src){showErr('Enter keywords, attach a bill, or paste a narration first.');return}
   $('err').hidden=true;
-  kwIssues=(mode==='write'?auditAmounts(src).issues:[]);
+  kwIssues=(mode==='write'&&!pasteTable(src)?auditAmounts(src).issues:[]);
   if(mode==='check'&&!extra){
     // show the rule check on the old narration at once, before the AI answers
     const pre=lint(src,ctxNow());
