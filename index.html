@@ -2564,10 +2564,10 @@ body.na-lock .wrap{visibility:hidden}
     sel.innerHTML='';NA.engines.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=msg[e]||e;sel.appendChild(o)});sel.value=cur;
     try{localStorage.setItem('na_engine',cur)}catch(e){}
     $('na-eng').closest('.na-top').querySelector('label').hidden=NA.engines.length<2;sel.hidden=NA.engines.length<2;
-    const b=$('na-ms');b.hidden=!NA.ms.configured;b.textContent=NA.ms.connected?'Outlook connected':'Connect Outlook';b.disabled=!!NA.ms.connected;
+    const b=$('na-ms');b.hidden=!NA.ms.configured;b.textContent=NA.ms.connected?'Outlook connected (change mail id)':'Connect Outlook';b.disabled=false;
   }
   $('na-eng').onchange=e=>{try{localStorage.setItem('na_engine',e.target.value)}catch(x){}};
-  $('na-ms').onclick=()=>{location.href='/api/ms/login'};
+  $('na-ms').onclick=()=>{let last='';try{last=localStorage.getItem('na_mail')||''}catch(e){}const m=(prompt('Enter the Outlook mail id to connect (any mailbox, e.g. name@company.com):',last)||'').trim();if(!m)return;if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)){alert('That does not look like a mail id.');return}try{localStorage.setItem('na_mail',m)}catch(e){}location.href='/api/ms/login?hint='+encodeURIComponent(m)};
   $('na-out').onclick=async()=>{try{await NA.api('/api/logout')}catch(e){}location.reload()};
 
   NA.openAdmin=async function(){
