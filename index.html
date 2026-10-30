@@ -2564,10 +2564,10 @@ body.na-lock .wrap{visibility:hidden}
     sel.innerHTML='';NA.engines.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=msg[e]||e;sel.appendChild(o)});sel.value=cur;
     try{localStorage.setItem('na_engine',cur)}catch(e){}
     $('na-eng').closest('.na-top').querySelector('label').hidden=NA.engines.length<2;sel.hidden=NA.engines.length<2;
-    const b=$('na-ms');b.hidden=!NA.ms.configured;b.textContent=NA.ms.connected?'Outlook connected (change mail id)':'Connect Outlook';b.disabled=false;
+    const b=$('na-ms');b.hidden=false;b.textContent=NA.ms.connected?'Outlook connected (change mail id)':'Connect Outlook';b.disabled=false;
   }
   $('na-eng').onchange=e=>{try{localStorage.setItem('na_engine',e.target.value)}catch(x){}};
-  $('na-ms').onclick=()=>{let last='';try{last=localStorage.getItem('na_mail')||''}catch(e){}const m=(prompt('Enter the Outlook mail id to connect (any mailbox, e.g. name@company.com):',last)||'').trim();if(!m)return;if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)){alert('That does not look like a mail id.');return}try{localStorage.setItem('na_mail',m)}catch(e){}location.href='/api/ms/login?hint='+encodeURIComponent(m)};
+  $('na-ms').onclick=()=>{if(!NA.ms.configured){alert('Outlook is not set up on this server yet. The admin needs to add the Azure app (MS_CLIENT_ID and MS_CLIENT_SECRET) in Vercel, then it will ask for any mail id.');return}let last='';try{last=localStorage.getItem('na_mail')||''}catch(e){}const m=(prompt('Enter the Outlook mail id to connect (any mailbox, e.g. name@company.com):',last)||'').trim();if(!m)return;if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)){alert('That does not look like a mail id.');return}try{localStorage.setItem('na_mail',m)}catch(e){}location.href='/api/ms/login?hint='+encodeURIComponent(m)};
   $('na-out').onclick=async()=>{try{await NA.api('/api/logout')}catch(e){}location.reload()};
 
   NA.openAdmin=async function(){
