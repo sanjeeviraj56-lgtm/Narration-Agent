@@ -409,6 +409,11 @@ function auditAmounts(t){
   const paren=[];const pr=/\([^)]*\)/g;while((m=pr.exec(t)))paren.push([m.index,m.index+m[0].length,m[0]]);
   while((m=rx.exec(t))){const v=num(m[1]);if(v===null)continue;toks.push({v,raw:m[0],idx:m.index,end:m.index+m[0].length,dash:!!m[2]})}
   if(!toks.length)return res;
+  /* "Rs. 10,000/- and 15,000/-": numbers after and / & / comma continue the list even without "Rs." */
+  for(let i=0;i<toks.length;i++){let k=toks[i];
+    for(;;){const mm=/^\s*(?:,|&|\band\b)\s*((?:\d{1,3}(?:,\d{2,3})+|\d{3,})(?:\.\d{1,2})?)(\s*\/-)?/i.exec(t.slice(k.end));if(!mm)break;
+      const v=num(mm[1]);if(v===null)break;const nt={v,raw:mm[1]+(mm[2]||''),idx:k.end+mm[0].indexOf(mm[1]),end:k.end+mm[0].length,dash:!!mm[2],cont:true};
+      toks.splice(i+1,0,nt);i++;k=nt}}
   toks.forEach((k,i)=>{
     const p=paren.find(q=>k.idx>=q[0]&&k.idx<q[1]);
     const after=t.slice(k.end,k.end+16);
@@ -416,6 +421,12 @@ function auditAmounts(t){
     const before=t.slice(Math.max(0,k.idx-30),k.idx);
     k.total=!k.rate&&(/\b(totall?y|total|overall|grand total)\s*(?:amount|bill|value)?\s*(?:is|of|at|:|=)?\s*$/i.test(before)||(i===0&&/^(Ch\. ?No ?:? ?\w+\s+)?Being\s+(?:an\s+|the\s+)?(?:amount|sum)(?:\s+of)?\s*$/i.test(t.slice(0,k.idx))));
   });
+  /* break-up: "Rs. 25,000/- ... (break up Rs. 10,000/- and 15,000/-)": the amount before the marker is the total, the ones after it are its parts */
+  const mkm=/\b(break[\s-]?up|bifurcation|bifurcated|split(?:[\s-]?up)?|e\.?\s?g\.?|ex\.?|incl(?:uding|udes|uded)|consisting of|comprising|as follows|namely|i\.e\.?)(?=[\s:(\-]|$)/i.exec(t);
+  if(mkm){const br=/(?<![\d.,])((?:\d{1,3}(?:,\d{2,3})+|\d{3,})(?:\.\d{1,2})?)(\s*\/-)/g;br.lastIndex=mkm.index;let bm;
+    while((bm=br.exec(t))){const ix=bm.index;if(toks.some(x=>ix>=x.idx&&ix<x.end))continue;const v=num(bm[1]);if(v===null)continue;toks.push({v,raw:bm[0],idx:ix,end:ix+bm[0].length,dash:true,cont:true})}
+    toks.sort((x,y)=>x.idx-y.idx)}
+  if(mkm){const bef=toks.filter(x=>x.idx<mkm.index&&!x.rate),aft=toks.filter(x=>x.idx>=mkm.index&&!x.rate);if(bef.length&&aft.length){bef[bef.length-1].total=true}}
   const QTY=/(\d+(?:\.\d+)?)\s*(?:kgs?|gms?|g|ltrs?|l|mtrs?|m|no'?s|nos\.?|no|pkts?|pcs|boxe?s?|bags?|days?|hrs?|hours?|sets?|rolls?)\b/gi;
   const lastQty=seg=>{let q=null,mm;QTY.lastIndex=0;while((mm=QTY.exec(seg)))q=parseFloat(mm[1]);return q};
   toks.forEach((k,i)=>{
@@ -429,7 +440,7 @@ function auditAmounts(t){
   });
   res.totals=toks.filter(k=>k.total);
   const f2=n=>Math.round(n*100)/100;
-  const repl=(list,val)=>t0=>{let s=t0;[...list].sort((a,b)=>b.idx-a.idx).forEach(k=>{s=s.slice(0,k.idx)+'Rs. '+inr(val)+(k.dash?'/-':'')+s.slice(k.end)});return s};
+  const repl=(list,val)=>t0=>{let s=t0;[...list].sort((a,b)=>b.idx-a.idx).forEach(k=>{s=s.slice(0,k.idx)+(k.cont?'':'Rs. ')+inr(val)+(k.dash?'/-':'')+s.slice(k.end)});return s};
   const parts=[];
   res.items.forEach(k=>{
     if(k.qty!=null&&k.r!=null){
